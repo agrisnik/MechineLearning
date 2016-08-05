@@ -1,0 +1,211 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "A.Nikitenko"
+date: "August 4, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+This document is a course project report in "Practical Machine Learning" provided by J.Hopkins University using Coursera on-line learning tool. The report presents results of prediction model developed and the reasoning behind it. 
+The problem and the date has been taken from http://groupware.les.inf.puc-rio.br/har. 
+
+## Data
+
+Data represents human activity of 6 young people performing physical exercises. The description of the data provided by the researchers conducting the data acquisition is as follows:
+
+"Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E)."
+
+For the project purposes data is split into training and test data sets being stored in the same folders as the R code executing the data analysis. 
+
+Data reading R code:
+
+```{r data, echo = TRUE}
+rawTraining <- read.csv("pml-training.csv", header = TRUE, sep = ",", quote = "\"", dec = ".", na.strings = "NA")
+rawTesting <- read.csv("pml-testing.csv", header = TRUE, sep = ",", quote = "\"", dec = ".", na.strings = "NA")
+
+dim(rawTraining)
+dim(rawTesting)
+names(rawTraining)
+```
+
+Due to report size limitations the data summary is not presented here, but few thing have to be emphasized:
+
+1) The data set has 160 parameters including record number and class index - "classe";
+2) Some of the parameters include many NAs;
+3) A significant part of the parameters are not necessary for the questions being answered by this exercise. Therefore the data has to bee cleaned before application of machine learning methods.
+
+## Cleaning data
+
+Since many parameters are aggregates of the others, they can be removed providing only the raw sensor data. The same can be done with parameters including mostly NAs. The necessary parameters are those starting with "gyros" - gyroscope readings, "accel" - accelerometer readings, "magnet" - magnetometer readings, "roll", "pitch" and "yaw" providing calculated static angles around axes. An finally it is necessary to add class field "classe"
+
+```{r clean data, echo = TRUE, results="hide"}
+library(PerformanceAnalytics)
+
+initNames <- grepl("^accel|^gyros|^magnet|^roll|^pitch|^yaw|^classe",names(rawTraining))
+initialData <- rawTraining[,initNames]
+ValidationData <- rawTesting[, initNames]
+```
+
+## Splitting data
+
+The acquired training data has to split into training and testing part, which is done by the following code:
+
+```{r splitting data, echo = TRUE, results="hide"}
+library(caret)
+inTraining <- createDataPartition(initialData$classe, p = 0.7, list = FALSE)
+training <- initialData[inTraining,]
+testing <- initialData[-inTraining,]
+```
+
+# Building prediction models
+
+The prediction models are built using "caret" package using "decision trees", "random forest" and boosting techniques. The following code in addition check for saved models to reduce script running time if repeated. 
+
+```{r building models rpart, echo = TRUE, results="hide"}
+set.seed(1234321)
+
+if(file.exists("modFitDT.rda"))
+{
+    load("modFitDT.rda")
+} else
+{
+   fitControl <- trainControl(method = 'cv', number=5)
+   modFitDT <- train(classe ~ ., data = training, method = 'rpart', trControl = fitControl) 
+   save(modFitDT,file = "modFitDT.rda")
+}
+#modFitDT
+```
+
+
+```{r building models rf, echo = TRUE, results="hide"}
+if(file.exists("modFitRF.rda"))
+{
+    load("modFitRF.rda")
+} else
+{
+   fitControl <- trainControl(method = 'cv', number=5)
+   modFitRF <- train(classe ~ ., data = training, method = 'rf', trControl = fitControl, ntree = 100) 
+   save(modFitRF,file = "modFitRF.rda")
+}
+#modFitRF
+```
+
+
+```{r building models boost, echo = TRUE, results="hide"}
+if(file.exists("modFitBoosted.rda"))
+{
+    load("modFitBoosted.rda")
+} else
+{
+    fitControl <- trainControl(method = 'cv', number=5)
+    modFitBoosted <- train(classe ~ ., data = training, method = "gbm", trControl = fitControl, verbose=FALSE)
+    save(modFitBoosted,file = "modFitBoosted.rda")
+}
+#modFitBoosted 
+```
+
+```{r building models nnet, echo = TRUE, results="hide"}
+if(file.exists("modFitNNET.rda"))
+{
+    load("modFitNNET.rda")
+} else
+{
+    fitControl <- trainControl(method = 'cv', number=5)
+    modFitNNET<- train(classe ~ ., data = training, method = "nnet", trControl = fitControl, verbose=FALSE)
+    save(modFitNNET,file = "modFitNNET.rda")
+}
+#modFitNNET
+```
+
+Since the Artificial neuron networks has not bee a part of course topics, it is interesting to visualize the found model:
+
+```{r, dpi = 960, dev = 'png', dev.args=list(pointsize=6), results="hide" }
+library(devtools)
+source_url('https://gist.githubusercontent.com/fawda123/7471137/raw/466c1474d0a505ff044412703516c34f1a4684a5/nnet_plot_update.r')
+plot.nnet(modFitNNET)
+```
+
+# Building predictions
+
+This sections reports on the predictions done by each model.
+First it is necessary to collect predictions into separate data structures.
+
+
+```{r predictions, echo = TRUE, results="hide"}
+predDT <- predict(modFitDT, newdata = testing)
+predRF <- predict(modFitRF, newdata = testing)
+predBoost <- predict(modFitBoosted, newdata = testing)
+predNNET <- predict(modFitNNET, newdata = testing)
+```
+
+## Confusion matrix comparision
+
+```{r confusion, echo = TRUE}
+cmDT <- confusionMatrix(predDT, testing$classe)
+cmRF <-confusionMatrix(predRF, testing$classe)
+cmBoost <- confusionMatrix(predBoost, testing$classe)
+cmNNET <- confusionMatrix(predNNET,testing$classe)
+
+cmDT$table
+cmDT$overall['Accuracy']
+
+cmRF$table
+cmRF$overall['Accuracy']
+
+cmBoost$table
+cmBoost$overall['Accuracy']
+
+cmNNET$table
+cmNNET$overall['Accuracy']
+```
+
+## Resampling
+
+To ground the results a resampling is done and visualized.
+
+```{r resampling, echo = TRUE}
+cvValues <- resamples(list(DT = modFitDT, RF = modFitRF, ANNet = modFitNNET))
+summary(cvValues)
+```
+
+
+Since the random forest outperforms the other used models in terms of accuracy, which is justified by the confusion matrix and the estimated accuracy on the testing data, there is no need for further analysis of the remaining two models. Using other models like Support vector machines, general linear models or nonlinear regression because the accuracy of the Random Forest model is 99,8%, which is close to the maximum possible. 
+
+It is interesting to note that artificial neuron network's performance is significantly lower than performance of the other models. It might be related to overfitting. 
+
+Thereby the further analysis is done only by Random Forest model. 
+
+```{r Random forest, echo = TRUE, dpi = 960, dev = 'png', dev.args=list(pointsize=6) }
+plot(modFitRF$finalModel)
+
+```
+
+## Feature importance
+
+For better description of the model a feature importance can be analyzed:
+
+```{r features, echo = TRUE, dpi = 960, dev = 'png', dev.args=list(pointsize=6) }
+finalmodel <- modFitRF$finalModel
+plot(varImp(modFitRF, scale = TRUE), top = 10)
+```
+
+
+# Prediction
+
+This section presents prediction results on the validation data set consisting of 20 samples, where each sample is indexes by problem_id field value.
+
+```{r validation prediction, echo = TRUE}
+predValid <- predict(modFitRF, newdata = ValidationData)
+result <- data.frame(Problem_ID = ValidationData$problem_id, classe = predValid)
+result
+```
+
+# Conclusion
+
+The course project examined 4 different prediction models including artificial neuron networks. The models were built using cross validation and resampling. Unfortunately the initial data set included fields without meaningful content, what emphasizes the importance of data exploration before applying any further analysis. The fitted models differed in their accuracy significantly starting from 40% up to 99% with the lowest rate for artificial neuron networks, which seems to be interesting because the technique is used for highly non-linear problems. 
+As it was noted during the course Random Forests has a good performance in many machine learning problems. The course project supports this thesis. 
